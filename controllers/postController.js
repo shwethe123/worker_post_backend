@@ -1,8 +1,17 @@
+const fs = require('fs');
+const path = require('path');
+const cloudinary = require('cloudinary').v2;
 const Post = require('../models/Post');
 const User = require('../models/User');
-const auth = require('../middlewares/auth'); // သင်၏ authentication middleware
+const auth = require('../middlewares/auth');
 
-// Create a new post
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
+
 exports.createPost = [
   auth,
   async (req, res) => {
@@ -10,30 +19,51 @@ exports.createPost = [
       const { content } = req.body;
       const userId = req.user.id;
 
+      if (!content && !req.file) {
+        return res.status(400).json({ message: 'Content or image is required' });
+      }
+
       const user = await User.findById(userId);
       if (!user) return res.status(404).json({ message: 'User not found' });
+
+      let imageUrl = null;
+      if (req.file) {
+        try {
+          // Convert buffer to base64
+          const b64 = Buffer.from(req.file.buffer).toString('base64');
+          const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+          
+          const result = await cloudinary.uploader.upload(dataURI, {
+            folder: 'posts',
+            resource_type: 'auto'
+          });
+          imageUrl = result.secure_url;
+        } catch (uploadError) {
+          console.error('Image upload error:', uploadError);
+          return res.status(500).json({ message: 'Image upload failed' });
+        }
+      }
 
       const newPost = new Post({
         user: userId,
         content,
+        image: imageUrl
       });
 
-      await newPost.save();
-
-      // Populate user info for the response
-      const populatedPost = await Post.findById(newPost._id)
+      const savedPost = await newPost.save();
+      
+      const populatedPost = await Post.findById(savedPost._id)
         .populate('user', 'username avatar')
-        .populate('likes', 'username avatar') // Populate likes array with user info
-        .populate('comments.user', 'username avatar')
-        .populate('comments.replies.user', 'username avatar');
+        .populate('likes', 'username avatar')
+        .populate('comments.user', 'username avatar');
 
       res.status(201).json(populatedPost);
     } catch (error) {
+      console.error('Post creation error:', error);
       res.status(500).json({ message: error.message });
     }
-  },
+  }
 ];
-
 // Get all posts
 exports.getPosts = async (req, res) => {
   try {
