@@ -16,7 +16,7 @@ const orderTaskSchema = new mongoose.Schema({
     },
     state: {
         type: String,
-        required: true,
+        // required: true,
         enum: ['pending', 'in progress', 'completed'], // You can customize this
     },
     user_time: {
